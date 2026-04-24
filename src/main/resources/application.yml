@@ -1,8 +1,62 @@
-#
-# application.yml — главный конфигурационный файл Spring Boot.
+server:
+  port: 8080 # Порт приложения
 
-Что нужно сделать:
-  - Указать настройки подключения к базе данных.
-  - Указать порт приложения.
-  - Настроить параметры безопасности и JWT.
-  - Включить Swagger UI.
+spring:
+  application:
+    name: bank-cards-system
+
+  # --- Настройка базы данных (PostgreSQL) ---
+  datasource:
+    url: jdbc:postgresql://localhost:5432/bankdb
+    username: admin
+    password: secret
+    driver-class-name: org.postgresql.Driver
+
+  # --- Настройка JPA / Hibernate ---
+  jpa:
+    hibernate:
+      ddl-auto: none # Таблицы создаются только через Liquibase
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+  # --- Настройка Liquibase (Миграции БД) ---
+  liquibase:
+    enabled: true
+    change-log: classpath:db/changelog/db.changelog-master.yaml
+
+# --- Настройки JWT (для JwtUtils) ---
+jwt:
+  secret: dGhpc2lzYXZlcnlzZWNyZXRrZXlmb3Jqd3RzaWduaW5nMTIzNDU2Nzg5MA== # Base64-encoded ключ
+  expiration: 86400000 # 24 часа в мс
+
+# --- Настройки шифрования (для EncryptionService) ---
+encryption:
+  secret-key: MySuperSecretKeyForAES123456789012 # Ровно 32 символа для AES-256
+
+# --- Настройка Swagger UI (SpringDoc OpenAPI) ---
+springdoc:
+  api-docs:
+    path: /api-docs # Путь к JSON спецификации
+  swagger-ui:
+    path: /swagger-ui.html # Путь к интерфейсу Swagger
+    tags-sorter: alpha # Сортировка по алфавиту
+    operations-sorter: alpha
+  # Группировка эндпоинтов по контроллерам
+  group-configs:
+    - group: 'auth'
+      paths-to-match: '/auth/**'
+    - group: 'cards'
+      paths-to-match: '/cards/**'
+    - group: 'admin'
+      paths-to-match: '/admin/**'
+
+# --- Логирование ---
+logging:
+  level:
+    root: INFO
+    com.example.bankcards: DEBUG
+    org.springframework.security: WARN
+    org.hibernate.SQL: DEBUG

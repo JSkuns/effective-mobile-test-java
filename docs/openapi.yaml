@@ -1,1 +1,566 @@
-# Здесь будет OpenAPI описание всех доступных эндпоинтов и моделей данных.
+openapi: 3.0.3
+info:
+  title: Bank Cards Management System
+  description: |
+    REST API для управления банковскими картами с поддержкой JWT аутентификации, ролевого доступа и шифрования данных.
+    
+    ### Основные возможности:
+    - Аутентификация через JWT токены
+    - Создание, просмотр, блокировка карт
+    - Переводы между своими картами
+    - Административные функции (удаление карт, активация, управление пользователями)
+    
+    ### Безопасность:
+    - Все эндпоинты кроме /auth требуют JWT токен в заголовке Authorization: Bearer <token>
+    - Номера карт хранятся в зашифрованном виде (AES-256)
+    - При выводе номер маскируется: **** **** **** 1234
+
+  version: 1.0.0
+  contact:
+    name: Effective Mobile Test Task
+    email: test@test.ru
+    url: https://github.com/JSkuns
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Введите JWT токен, полученный после логина через POST /auth/login
+
+  schemas:
+    # --- DTOs ---
+    LoginRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          example: "admin"
+        password:
+          type: string
+          format: password
+          example: "password123"
+
+    JwtResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+
+    CreateCardRequest:
+      type: object
+      required:
+        - initialBalance
+        - cardNumber
+      properties:
+        initialBalance:
+          type: number
+          format: double
+          minimum: 0
+          example: 1000.00
+        cardNumber:
+          type: string
+          pattern: "\\d{16}"
+          description: 16-значный номер карты (будет зашифрован)
+          example: "4276550012345678"
+        expiryDate:
+          type: string
+          format: date
+          description: Срок действия карты (опционально)
+          example: "2028-12-31"
+
+    TransferRequest:
+      type: object
+      required:
+        - fromCardId
+        - toCardId
+        - amount
+      properties:
+        fromCardId:
+          type: integer
+          format: int64
+          example: 1
+        toCardId:
+          type: integer
+          format: int64
+          example: 2
+        amount:
+          type: number
+          format: double
+          minimum: 0.01
+          example: 500.00
+
+    CardResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 1
+        maskedCardNumber:
+          type: string
+          example: "**** **** **** 5678"
+        balance:
+          type: number
+          format: double
+          example: 1500.00
+        status:
+          type: string
+          enum: [ACTIVE, BLOCKED, EXPIRED]
+          example: "ACTIVE"
+        ownerUsername:
+          type: string
+          example: "user1"
+
+    ErrorResponse:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          example: "2026-04-21T10:30:45.123"
+        status:
+          type: integer
+          example: 404
+        error:
+          type: string
+          example: "Not Found"
+        message:
+          type: string
+          example: "Card with id 123 not found or access denied"
+        path:
+          type: string
+          example: "/api/cards/123"
+
+paths:
+  # --- Authentication ---
+  /auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: Вход в систему
+      description: Возвращает JWT токен при успешной аутентификации
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Успешный вход
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JwtResponse'
+        '401':
+          description: Неверные учетные данные
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/register:
+    post:
+      tags:
+        - Authentication
+      summary: Регистрация нового пользователя
+      description: Создает пользователя с ролью USER
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '201':
+          description: Пользователь создан
+        '400':
+          description: Пользователь уже существует
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # --- Cards (User) ---
+  /cards:
+    post:
+      tags:
+        - Cards
+      summary: Создать новую карту
+      description: Создает карту для текущего пользователя
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCardRequest'
+      responses:
+        '200':
+          description: Карта создана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CardResponse'
+        '401':
+          description: Неавторизован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      tags:
+        - Cards
+      summary: Получить все карты пользователя
+      description: С поддержкой пагинации
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 0
+          description: Номер страницы
+        - in: query
+          name: size
+          schema:
+            type: integer
+            default: 10
+          description: Размер страницы
+      responses:
+        '200':
+          description: Список карт
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  content:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CardResponse'
+                  totalElements:
+                    type: integer
+                  totalPages:
+                    type: integer
+                  number:
+                    type: integer
+                  size:
+                    type: integer
+        '401':
+          description: Неавторизован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /cards/{id}:
+    get:
+      tags:
+        - Cards
+      summary: Получить карту по ID
+      description: Возвращает карту только если она принадлежит текущему пользователю
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      responses:
+        '200':
+          description: Карта найдена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CardResponse'
+        '404':
+          description: Карта не найдена или нет доступа
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /cards/transfer:
+    post:
+      tags:
+        - Cards
+      summary: Перевод между своими картами
+      description: Переводит деньги с одной карты на другую (обе должны принадлежать пользователю)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransferRequest'
+      responses:
+        '204':
+          description: Перевод выполнен
+        '400':
+          description: Недостаточно средств или карты не принадлежат пользователю
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /cards/{id}/block:
+    patch:
+      tags:
+        - Cards
+      summary: Заблокировать карту
+      description: Меняет статус карты на BLOCKED
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      responses:
+        '204':
+          description: Карта заблокирована
+        '404':
+          description: Карта не найдена или нет доступа
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /cards/{id}/unblock:
+    patch:
+      tags:
+        - Cards
+      summary: Разблокировать карту
+      description: Меняет статус карты на ACTIVE
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      responses:
+        '204':
+          description: Карта разблокирована
+        '404':
+          description: Карта не найдена или нет доступа
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /cards/{id}/balance:
+    get:
+      tags:
+        - Cards
+      summary: Получить баланс карты
+      description: Возвращает текущий баланс карты
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      responses:
+        '200':
+          description: Баланс получен
+          content:
+            application/json:
+              schema:
+                type: number
+                format: double
+                example: 1500.00
+        '404':
+          description: Карта не найдена или нет доступа
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # --- Admin ---
+  /admin/cards/{id}:
+    delete:
+      tags:
+        - Admin
+      summary: Удалить карту
+      description: Админ может удалить любую карту по ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      responses:
+        '204':
+          description: Карта удалена
+        '404':
+          description: Карта не найдена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /admin/cards:
+    get:
+      tags:
+        - Admin
+      summary: Получить все карты системы
+      description: Админ видит все карты всех пользователей с пагинацией
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 0
+        - in: query
+          name: size
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Список всех карт
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  content:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CardResponse'
+                  totalElements:
+                    type: integer
+                  totalPages:
+                    type: integer
+                  number:
+                    type: integer
+                  size:
+                    type: integer
+        '403':
+          description: Нет прав администратора
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /admin/cards/{id}/activate:
+    patch:
+      tags:
+        - Admin
+      summary: Активировать карту
+      description: Админ может активировать заблокированную или истекшую карту
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      responses:
+        '204':
+          description: Карта активирована
+        '404':
+          description: Карта не найдена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /admin/users:
+    get:
+      tags:
+        - Admin
+      summary: Получить всех пользователей
+      description: Админ может просмотреть список всех пользователей
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Список пользователей
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: integer
+                      format: int64
+                    username:
+                      type: string
+                    role:
+                      type: string
+                      enum: [USER, ADMIN]
+        '403':
+          description: Нет прав администратора
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /admin/users/{username}/make-admin:
+    patch:
+      tags:
+        - Admin
+      summary: Назначить роль ADMIN пользователю
+      description: Админ может повысить права пользователя
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: username
+          required: true
+          schema:
+            type: string
+          example: "user1"
+      responses:
+        '204':
+          description: Роль изменена
+        '404':
+          description: Пользователь не найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'

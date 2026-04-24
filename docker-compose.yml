@@ -1,9 +1,59 @@
-# 
-# docker-compose.yml — определяет сервисы для разработки и тестирования.
+version: '3.8'
 
-Что нужно сделать:
-  - Настроить сервисы для:
-      - PostgreSQL (или MySQL) с начальной базой.
-      - Приложения Spring Boot (если нужно).
-  - Открыть нужные порты (например, 5432, 8080).
-  - Настроить volume для хранения данных БД.
+services:
+  # --- База данных PostgreSQL ---
+  postgres:
+    image: postgres:15-alpine
+    container_name: bank-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: bankdb
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: secret
+    ports:
+      - "5432:5432"  # Открываем порт, чтобы можно было подключиться из IDE или DBeaver
+    volumes:
+      - pgdata:/var/lib/postgresql/data  # Сохраняем данные БД между перезапусками
+    networks:
+      - bank-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d bankdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # --- Spring Boot Приложение ---
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bank-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy  # Ждём, пока БД будет готова
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/bankdb
+      SPRING_DATASOURCE_USERNAME: admin
+      SPRING_DATASOURCE_PASSWORD: secret
+      SPRING_JPA_HIBERNATE_DDL_AUTO: none
+      JWT_SECRET: dGhpc2lzYXZlcnlzZWNyZXRrZXlmb3Jqd3RzaWduaW5nMTIzNDU2Nzg5MA==
+      JWT_EXPIRATION: 86400000
+      ENCRYPTION_SECRET_KEY: MySuperSecretKeyForAES123456789012
+    ports:
+      - "8080:8080"  # Открываем порт приложения для доступа из браузера/Postman
+    networks:
+      - bank-network
+    # Опционально: маппинг локальной папки с логами или конфигами
+    # volumes:
+    #   - ./logs:/app/logs
+
+# --- Сеть для изоляции сервисов ---
+networks:
+  bank-network:
+    driver: bridge
+
+# --- Volume для хранения данных PostgreSQL ---
+volumes:
+  pgdata:
+    driver: local
