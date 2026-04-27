@@ -1,0 +1,23 @@
+databaseChangeLog:
+  - changeSet:
+      id: "3-insert-test-users"
+      author: "VVTerekhin"
+      changes:
+        - sql:
+            dbms: postgresql
+            stripComments: false
+            splitStatements: true
+            sql: |
+              INSERT INTO users (username, password, role)
+              VALUES ('admin', '$2a$10$X8v9mP2vL8nQ4wR6tY1zB.e7gK9mN4pT6vX8zA2dE7fH0sJ3kL5m', 'ADMIN')
+              ON CONFLICT (username) DO NOTHING;
+
+              INSERT INTO users (username, password, role)
+              VALUES ('testuser', '$2a$10$Y9w0nQ3wM9oR5xS7uZ2aC.f8hL0nO5qU7wY9zA3eF8gI1tK4lM6n', 'USER')
+              ON CONFLICT (username) DO NOTHING;
+
+      rollback:
+        - sql:
+            dbms: postgresql
+            sql: |
+              DELETE FROM users WHERE username IN ('admin', 'testuser');
